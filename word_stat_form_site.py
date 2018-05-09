@@ -108,7 +108,8 @@ class WordStatFromSite:
         words_stat = {'length': pd.Series(
             map(len, word_freq.keys()), index=word_freq.keys()),
             'frequency': pd.Series(word_freq)}
-        # Возможно использованиие pymorph2 для анализа текста
+        # Возможно использованиие pymorph2 для анализа текста. Если останется
+        # время
         # lang_morph_data = ['POS', 'animacy', 'aspect', 'case', 'gender',
         #                    'involvement', 'mood', 'number', 'person', 'tense',
         #                    'transitivity', 'voice']
@@ -149,7 +150,7 @@ class WordStatFromSite:
             temp_table.sort_values('frequency', ascending=order == 'asc').head(
                 n).index)
 
-    def stop_word(self):
+    def stop_words(self):
         """
         Вывод слов-выбросов
         :return: Список слов-выбросов
@@ -169,19 +170,21 @@ class WordStatFromSite:
 
     def word_cloud(self, color):
         """
-        Создание облака слов
+        Создание облака слов. Возвращает местоположение полученного фото.
         :param color: Используемая цветовая карта
-        :return:
+        :type color: str
+        :return: Местоположение фото
+        :rtype: str
         """
         with open(self.dst_texts, 'w') as texts:
             text = texts.read()
             wordcloud = WordCloud(colormap=color).generate(text)
+            dst_photo = os.path.join(self.work_dir,
+                                     'wordcloud_{0}.png'.format(self.url_name))
             plt.imshow(wordcloud, interpolation='bilinear')
             plt.axis('off')
-            plt.imsave(
-                os.path.join(self.work_dir,
-                             'wordcloud_{0}.png'.format(self.url_name)),
-                format='png')
+            plt.imsave(dst_photo, format='png')
+            return dst_photo
 
     def describe(self):
         """
