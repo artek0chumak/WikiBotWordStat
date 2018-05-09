@@ -2,9 +2,10 @@
 Скрипт работы телеграм бота
 """
 import telebot
+import json
 
 
-with open('config') as config:
+with json.load(open('config')) as config:
     bot = telebot.TeleBot(config['token'])
 
 @bot.message_handler(regexp='help')
