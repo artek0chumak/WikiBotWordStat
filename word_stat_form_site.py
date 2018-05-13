@@ -4,9 +4,7 @@
 import parser
 import pandas as pd
 # import pymorphy2
-import train
-import model
-import generate
+import MothersFriendTextWriter as mftw
 import re
 import collections
 import numpy
@@ -29,10 +27,14 @@ class WordStatFromSite:
         self.depth = depth
         self.chat_id = chat_id
 
-        self.url_name = re.findall(r'\.[\w]\.', self.url)[0]
+        self.url_name = re.findall(r'[\w.]+', self.url)[0]
+        if self.url_name in ('http', 'https'):
+            self.url_name = re.findall(r'[\w.]+', self.url)[1]
         # self.morph = pymorphy2.MorphAnalyzer()
 
         self.work_dir = 'chat_{0}'.format(self.chat_id)
+        if self.work_dir not in os.listdir('.'):
+            os.makedirs(self.work_dir)
 
         # Расположение файлов с текстом, моделью для генерации текста
         #  и статистикой
@@ -55,24 +57,28 @@ class WordStatFromSite:
         used_urls = set()
 
         with open(self.dst_texts, 'w') as texts:
-            for url in urls.difference(used_urls):
-                used_urls.add(url)
-                parser_site = parser.UrlParser(url[0])
-                text = ' '.join([_ for _ in parser_site.find_paragraphs()])
-                texts.write(text)
-                if url[1] < self.depth:
-                    urls.update([(href, 0) for href in
-                                 parser_site.find_references() if
-                                 href is not None])
+            while len(urls.difference(used_urls)) > 0:
+                for url in urls.difference(used_urls):
+                    used_urls.add(url)
+                    parser_site = parser.UrlParser(url[0])
+                    text = '.\n'.join(
+                        [str(p) for p in parser_site.find_paragraphs()
+                         if p is not None])
+                    texts.write(text)
+                    if url[1] < self.depth:
+                        urls.update(
+                            [('https://' + self.url_name + href, url[1] + 1)
+                             for href in parser_site.find_references()
+                             if href is not None and str(href)[0] == '/'])
 
     def train_writer(self):
         """
         Обучение модели для генерации текста. Создает файл модели.
         """
-        with open(self.dst_texts, 'w') as texts:
-            token = train.gen_token(train.gen_lines(texts, False))
-            ngramms = train.gen_ngramms(token, 3)
-            model.train_model(ngramms, self.dst_model, False)
+        files = mftw.train.open_files(self.work_dir, True)
+        token = mftw.train.gen_token(files)
+        ngramms = mftw.train.gen_ngramms(token, 3)
+        mftw.model.train_model(ngramms, self.dst_model, False)
 
     def write(self, n):
         """
@@ -80,8 +86,8 @@ class WordStatFromSite:
         :param n: Количество слов в текста
         :return: Текст, сгенерированный из текстов сайта
         """
-        model_ngramms = model.load_model(self.dst_model)
-        text_gen = generate.generate_text(model_ngramms, n, None)
+        model_ngramms = mftw.model.load_model(self.dst_model)
+        text_gen = mftw.generate.generate_text(model_ngramms, n, None)
         return " ".join(text_gen)
 
     def gen_stat(self):
@@ -90,20 +96,23 @@ class WordStatFromSite:
         """
         word_freq = collections.Counter()
         place_in_sent = {}
-        with open(self.dst_texts, 'w') as texts:
+        with open(self.dst_texts, 'r') as texts:
             for line in texts:
                 word_freq.update(
                     [_.lower() for _ in re.findall(r'[\w]+', line)])
 
                 n = 1
-                for sent in line.split('.'):
+                for sent in re.findall(r'([^.!?]+)', line):
                     for word in re.findall(r'[\w]+', sent):
                         if place_in_sent.get(word.lower()) is None:
                             place_in_sent[word.lower()] = list()
                         place_in_sent[word.lower()].append(n)
                         n += 1
 
-        token = train.gen_token(train.gen_lines(texts, False))
+        files = mftw.train.open_files(self.work_dir, True)
+        token = mftw.train.gen_token(files)
+        with open(self.dst_bigramms, 'w') as file:
+            json.dump([_ for _ in mftw.train.gen_ngramms(token, 2)], file)
 
         words_stat = {'length': pd.Series(
             map(len, word_freq.keys()), index=word_freq.keys()),
@@ -120,11 +129,8 @@ class WordStatFromSite:
 
         with open(self.dst_words_stat, 'w') as file:
             pd.DataFrame(words_stat).to_csv(file)
-        with open(self.dst_bigramms, 'w') as file:
-            json.dump([_ for _ in train.gen_ngramms(token, 2)], file)
         with open(self.dst_PIS, 'w') as file:
-            json.dump({word: numpy.array(place_in_sent[word]) for
-                       word in place_in_sent.keys()}, file)
+            json.dump(place_in_sent, file)
 
     def top(self, n, order):
         """
@@ -176,14 +182,13 @@ class WordStatFromSite:
         :return: Местоположение фото
         :rtype: str
         """
-        with open(self.dst_texts, 'w') as texts:
+        with open(self.dst_texts, 'r') as texts:
             text = texts.read()
             wordcloud = WordCloud(colormap=color).generate(text)
             dst_photo = os.path.join(self.work_dir,
                                      'wordcloud_{0}.png'.format(self.url_name))
-            plt.imshow(wordcloud, interpolation='bilinear')
             plt.axis('off')
-            plt.imsave(dst_photo, format='png')
+            plt.imsave(dst_photo, wordcloud, format='png')
             return dst_photo
 
     def describe(self):
@@ -210,21 +215,23 @@ class WordStatFromSite:
         with open(self.dst_bigramms, 'r') as file:
             bigramms = json.load(file)
         with open(self.dst_PIS, 'r') as file:
-            PIS_word = json.load(file).get(word)
-            # Если такого слова нет, то выводится пустая статистика
-            if PIS_word is None:
-                PIS_word = numpy.array()
+            pis_word = numpy.array(json.load(file).get(word, []))
 
         neighbours = collections.Counter(
             [i[0] for i in bigramms if i[1] == word])
         neighbours.update([i[1] for i in bigramms if i[0] == word])
 
-        word_stat = words_stat.loc(word)
-        stat_by_word = {'frequency': word_stat['frequency'],
-                        'place_by_freq': words_stat[
-                            'frequency' > word_stat['frequency']].shape[0],
-                        'max_neighbour': neighbours.most_common(),
-                        'mean_PIS': PIS_word.mean(), 'std_PIS': PIS_word.std(),
-                        'min_PIS': PIS_word.min(), 'max_PIS': PIS_word.max()}
+        stat_by_word = {}
+        if word in words_stat.index:
+            word_stat = words_stat.loc[word]
+            stat_by_word.update({'frequency': word_stat['frequency'],
+                                 'place_by_freq': words_stat[
+                                     words_stat['frequency'] > word_stat[
+                                         'frequency']].shape[0],
+                                 'max_neighbour': ', '.join(
+                                     map(str, neighbours.most_common(5))),
+                                 'median_PIS': numpy.median(pis_word),
+                                 'min_PIS': pis_word.min(),
+                                 'max_PIS': pis_word.max()})
 
         return stat_by_word

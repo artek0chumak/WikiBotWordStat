@@ -28,7 +28,9 @@ class UrlParser:
         :rtype: generator
         """
         for p in self.tree.xpath('//p'):
-            yield p
+            yield p.text
+        for pre in self.tree.xpath('//pre'):
+            yield pre.text
 
     def find_references(self):
         """
@@ -36,5 +38,5 @@ class UrlParser:
         :return: Генератор данных
         :rtype: generator
         """
-        for href in self.tree.xpath('//href'):
+        for href in self.tree.xpath('//a'):
             yield href.attrib.get('href', None)
