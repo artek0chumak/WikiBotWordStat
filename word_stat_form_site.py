@@ -69,7 +69,7 @@ class WordStatFromSite:
                         urls.update(
                             [('https://' + self.url_name + href, url[1] + 1)
                              for href in parser_site.find_references()
-                             if href is not None and str(href)[0] == '/'])
+                             if str(href)[0] == '/'])
 
     def train_writer(self):
         """

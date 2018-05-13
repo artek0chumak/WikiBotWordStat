@@ -43,7 +43,12 @@ def start_bot(message):
 @bot.message_handler(regexp=url_reg + r' [\d]+')
 def get_url(message):
     url = re.findall(url_reg, message.text)[0]
+    if url[:4] != 'http':
+        url = 'http://' + url
     depth = int(re.findall(r'[\d]+', message.text)[-1])
+    bot.send_message(message.chat.id, 'Находим все тексты. Переход по ссылкам '
+                                      'требует времени, пожалуйста, подождите '
+                                      'сообщение о завершении.')
     currents_chat_url[message.chat.id] = WordStatFromSite(url, depth,
                                                           message.chat.id)
     bot.send_message(message.chat.id, 'Начинаем анализировать сайты...')

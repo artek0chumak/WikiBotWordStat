@@ -39,4 +39,6 @@ class UrlParser:
         :rtype: generator
         """
         for href in self.tree.xpath('//a'):
-            yield href.attrib.get('href', None)
+            ref = href.attrib.get('href', None)
+            if ref is not None and len(str(ref)) > 0:
+                yield ref
