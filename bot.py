@@ -3,6 +3,7 @@
 """
 import telebot
 import re
+# Файл с токеном для запуска бота
 import config
 from word_stat_form_site import WordStatFromSite
 
@@ -75,7 +76,7 @@ def show_help(message):
 
 @bot.message_handler(regexp='write [\d]+')
 @has_url
-def write_N(message):
+def write_n(message):
     list_m = message.text.split()
     n = int(list_m[1])
     text = currents_chat_url[message.chat.id].write(n)
@@ -84,7 +85,7 @@ def write_N(message):
 
 @bot.message_handler(regexp='top [\d]+(| asc| desc)')
 @has_url
-def show_topN(message):
+def show_top_n(message):
     list_m = message.text.split()
     n = int(list_m[1])
     order = 'asc' if len(list_m) < 3 else list_m[2]
