@@ -4,6 +4,7 @@
 import telebot
 import re
 # Файл с токеном для запуска бота
+import requests
 import config
 from word_stat_form_site import WordStatFromSite
 
@@ -11,7 +12,7 @@ ip = 'mcvie.reconnect.rocks'
 port = '1080'
 login = 'telegram'
 password = 'telegram'
-
+#
 # telebot.apihelper.proxy = {
 #   'https': 'socks5://{}:{}@{}:{}'.format(login, password, ip, port)
 # }
@@ -50,12 +51,16 @@ def get_url(message):
     bot.send_message(message.chat.id, 'Находим все тексты. Переход по ссылкам '
                                       'требует времени, пожалуйста, подождите '
                                       'сообщение о завершении.')
-    currents_chat_url[message.chat.id] = WordStatFromSite(url, depth,
-                                                          message.chat.id)
-    bot.send_message(message.chat.id, 'Начинаем анализировать сайты...')
-    currents_chat_url[message.chat.id].train_writer()
-    currents_chat_url[message.chat.id].gen_stat()
-    bot.send_message(message.chat.id, 'Статистика получена.')
+    try:
+        currents_chat_url[message.chat.id] = \
+            WordStatFromSite(url, depth, message.chat.id, bot.send_message)
+        bot.send_message(message.chat.id, 'Начинаем анализировать тексты...')
+        currents_chat_url[message.chat.id].train_writer()
+        currents_chat_url[message.chat.id].gen_stat()
+        bot.send_message(message.chat.id, 'Статистика получена.')
+    except requests.exceptions.ConnectionError:
+        bot.send_message(message.chat.id, 'Не удалось пройти по сайтам. '
+                                          'Попробуйте позже')
 
 
 @bot.message_handler(commands=['help'])
@@ -64,7 +69,8 @@ def show_help(message):
            '/help - вывести этот текст\n' \
            'write N - написать N слов, используя трёхграммную модель\n' \
            'http://www.example.com N - пример запроса сайта для анализа. ' \
-           'N - глубина перехода по ссылкам.\n' \
+           'N - глубина перехода по ссылкам. N = 1 - только переданной ' \
+           'страницы\n' \
            'top N asc|desc - вывести топ слов по частоте использование.' \
            'N - число слов, asc - в прямом порядке, desc - в обратном\n' \
            'stop word - вывести слова выбросы\n' \
@@ -114,7 +120,11 @@ def word_cloud(message):
             bot.send_photo(message.chat.id, photo,
                            reply_markup=telebot.types.ReplyKeyboardRemove())
     except ValueError as e:
-        bot.send_message(message.chat.id, str(e))
+        if str(e)[:8] == 'Colormap':
+            bot.send_message(message.chat.id, str(e))
+        else:
+            bot.send_message(message.chat.id, 'Произошла ошибка. '
+                                              'Попробуйте позже.')
 
 
 @bot.message_handler(regexp='describe [\w]+')
@@ -133,12 +143,24 @@ def describe_word(message):
 @bot.message_handler(regexp='(describe)')
 @has_url
 def describe(message):
+    dest_photo = currents_chat_url[message.chat.id].describe_hist()
+    for i in dest_photo:
+        with open(i, 'rb') as photo:
+            bot.send_photo(message.chat.id, photo,
+                           reply_markup=telebot.types.ReplyKeyboardRemove())
     d = currents_chat_url[message.chat.id].describe()
     text = 'count {0}\n'.format(d['frequency']['count'])
     text += '\n'.join(
         p + ': ' +
         ' '.join('{0}={1:.3}'.format(i, d[p][i]) for i in d[p]) for p in d)
     bot.send_message(message.chat.id, text)
+
+
+@bot.message_handler(content_types=['text'])
+def no_command(message):
+    bot.send_message\
+        (message.chat.id, 'Не определена команда. '
+                          'Попробуйте /help для вывода всех команд.')
 
 
 if __name__ == '__main__':

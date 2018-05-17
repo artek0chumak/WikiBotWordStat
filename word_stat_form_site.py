@@ -12,16 +12,18 @@ import json
 import os
 import matplotlib.pyplot as plt
 from wordcloud import WordCloud
+import requests
 
 
 class WordStatFromSite:
-    def __init__(self, url, depth, chat_id):
+    def __init__(self, url, depth, chat_id, send_msg):
         """
         Инициализация объекта для поиска данных с сайта.
         :param url: url первоначального сайта
         :type url: str
         :param depth: глубина поиска
         :type depth: int
+        :param send_msg: Функция написания сообщения пользователю
         """
         self.url = url
         self.depth = depth
@@ -39,13 +41,14 @@ class WordStatFromSite:
         # Расположение файлов с текстом, моделью для генерации текста
         #  и статистикой
         self.dst_texts = os.path.join(self.work_dir,
-                                      'texts_{0}.txt'.format(self.url_name))
+                                      'texts_{0}_{1}.txt'
+                                      .format(self.url_name, self.depth))
         self.dst_words_stat = os.path.join(self.work_dir,
-                                           'word_stat_{0}.csv'.format(
-                                               self.url_name))
+                                           'word_stat_{0}.csv'
+                                           .format(self.url_name))
         self.dst_bigramms = os.path.join(self.work_dir,
-                                         'bigramms_{0}.json'.format(
-                                             self.url_name))
+                                         'bigramms_{0}.json'
+                                         .format(self.url_name))
         # Расположение слова в предложении, place-in-sentence
         self.dst_PIS = os.path.join(self.work_dir,
                                     'PIS_{0}.json'.format(self.url_name))
@@ -53,23 +56,31 @@ class WordStatFromSite:
                                       'model_{0}'.format(self.url_name))
 
         urls = set()
-        urls.add((self.url, 0))
+        urls.add((self.url, 1))
         used_urls = set()
+        max_depth = 1
 
-        with open(self.dst_texts, 'w') as texts:
-            while len(urls.difference(used_urls)) > 0:
-                for url in urls.difference(used_urls):
-                    used_urls.add(url)
-                    parser_site = parser.UrlParser(url[0])
-                    text = '.\n'.join(
-                        [str(p) for p in parser_site.find_paragraphs()
-                         if p is not None])
-                    texts.write(text)
-                    if url[1] < self.depth:
-                        urls.update(
-                            [('https://' + self.url_name + href, url[1] + 1)
-                             for href in parser_site.find_references()
-                             if str(href)[0] == '/'])
+        if not os.path.exists(self.dst_texts):
+            with open(self.dst_texts, 'w') as texts:
+                while len(urls.difference(used_urls)) > 0:
+                    for url in urls.difference(used_urls):
+                        used_urls.add(url)
+                        parser_site = parser.UrlParser(url[0])
+                        text = '.\n'.join(
+                            [str(p) for p in parser_site.find_paragraphs()
+                             if p is not None])
+                        texts.write(text)
+                        if url[1] < self.depth:
+                            urls.update(
+                                [('https://' + self.url_name + href,
+                                  url[1] + 1)
+                                 for href in parser_site.find_references()
+                                 if str(href)[0] == '/'])
+                    send_msg(chat_id, 'Прошли все сайты на глубине {0}'
+                             .format(max_depth))
+                    max_depth += 1
+        else:
+            send_msg(chat_id, 'Тексты получены офлайн.')
 
     def train_writer(self):
         """
@@ -197,9 +208,54 @@ class WordStatFromSite:
         :return: Статистика по частоте и длине в виде словаря
         :rtype: dict
         """
-        with open(self.dst_words_stat, 'r') as file:
-            describe = dict(pd.DataFrame.from_csv(file).describe())
-            return {i: dict(describe[i]) for i in describe}
+        words_stat = pd.read_csv(self.dst_words_stat)
+        avg_freq = words_stat['frequency'].mean()
+        std_freq = words_stat['frequency'].std()
+        words_stat = words_stat[
+            (words_stat['frequency'] < avg_freq + 3 * std_freq) & (
+                    words_stat['frequency'] > avg_freq - 3 * std_freq)]
+
+        describe = dict(words_stat.describe())
+        return {i: dict(describe[i]) for i in describe}
+
+    def describe_hist(self):
+        """
+        Создание гистограмм из текста
+        :return: Расположение гистограмм в файле
+        :rtype: tuple of str
+        """
+        words_stat = pd.read_csv(self.dst_words_stat)
+        avg_freq = words_stat['frequency'].mean()
+        std_freq = words_stat['frequency'].std()
+        words_stat = words_stat[
+            (words_stat['frequency'] < avg_freq + 3 * std_freq) & (
+                    words_stat['frequency'] > avg_freq - 3 * std_freq)]
+
+        ax = plt.figure()
+        dst_hist_length = \
+            os.path.join(self.work_dir,
+                         'hist_length_{0}.png'.format(self.url_name))
+        dst_hist_freq = \
+            os.path.join(self.work_dir,
+                         'hist_freq_{0}.png'.format(self.url_name))
+
+        plt.hist(words_stat['length'])
+        plt.xlabel('Длина слова')
+        plt.ylabel('Количество слов')
+        plt.title('Гистограмма длины слова')
+        plt.grid(True)
+        plt.savefig(dst_hist_length, format='png')
+        ax.clear()
+
+        plt.hist(words_stat['frequency'])
+        plt.xlabel('Частота слова')
+        plt.ylabel('Количество слов')
+        plt.title('Гистограмма частоты появления слова')
+        plt.grid(True)
+        plt.savefig(dst_hist_freq, format='png')
+        ax.clear()
+
+        return dst_hist_length, dst_hist_freq
 
     def describe_word(self, word):
         """
@@ -210,8 +266,7 @@ class WordStatFromSite:
         :rtype: dict
         """
         word = word.lower()
-        with open(self.dst_words_stat, 'r') as file:
-            words_stat = pd.DataFrame.from_csv(file)
+        words_stat = pd.read_csv(self.dst_words_stat)
         with open(self.dst_bigramms, 'r') as file:
             bigramms = json.load(file)
         with open(self.dst_PIS, 'r') as file:
@@ -228,7 +283,7 @@ class WordStatFromSite:
                                  'place_by_freq': words_stat[
                                      words_stat['frequency'] > word_stat[
                                          'frequency']].shape[0],
-                                 'max_neighbour': ', '.join(
+                                 'max_neighbours': ', '.join(
                                      map(str, neighbours.most_common(5))),
                                  'median_PIS': numpy.median(pis_word),
                                  'min_PIS': pis_word.min(),
