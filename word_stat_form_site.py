@@ -13,25 +13,26 @@ import os
 import matplotlib.pyplot as plt
 from wordcloud import WordCloud
 import requests
+from urllib.parse import unquote
 
 
 class WordStatFromSite:
-    def __init__(self, url, depth, chat_id, send_msg):
+    def __init__(self, url, depth, chat_id):
         """
         Инициализация объекта для поиска данных с сайта.
         :param url: url первоначального сайта
         :type url: str
         :param depth: глубина поиска
         :type depth: int
-        :param send_msg: Функция написания сообщения пользователю
         """
-        self.url = url
+        self.url = unquote(url)
         self.depth = depth
         self.chat_id = chat_id
 
         self.url_name = re.findall(r'[\w.]+', self.url)[0]
         if self.url_name in ('http', 'https'):
             self.url_name = re.findall(r'[\w.]+', self.url)[1]
+        self.url_title = self.url.split('/')[-1]
         # self.morph = pymorphy2.MorphAnalyzer()
 
         self.work_dir = 'chat_{0}'.format(self.chat_id)
@@ -40,21 +41,29 @@ class WordStatFromSite:
 
         # Расположение файлов с текстом, моделью для генерации текста
         #  и статистикой
-        self.dst_texts = os.path.join(self.work_dir,
-                                      'texts_{0}_{1}.txt'
-                                      .format(self.url_name, self.depth))
-        self.dst_words_stat = os.path.join(self.work_dir,
-                                           'word_stat_{0}.csv'
-                                           .format(self.url_name))
-        self.dst_bigramms = os.path.join(self.work_dir,
-                                         'bigramms_{0}.json'
-                                         .format(self.url_name))
+        self.dst_texts = \
+            os.path.join(self.work_dir,
+                         'texts_{0}_{1}.txt'.format(self.url_title, self.depth))
+        self.dst_words_stat = \
+            os.path.join(self.work_dir,
+                         'word_stat_{0}.csv'.format(self.url_title))
+        self.dst_bigramms = \
+            os.path.join(self.work_dir,
+                         'bigramms_{0}.json'.format(self.url_title))
         # Расположение слова в предложении, place-in-sentence
-        self.dst_PIS = os.path.join(self.work_dir,
-                                    'PIS_{0}.json'.format(self.url_name))
-        self.dst_model = os.path.join(self.work_dir,
-                                      'model_{0}'.format(self.url_name))
+        self.dst_PIS = \
+            os.path.join(self.work_dir, 'PIS_{0}.json'.format(self.url_title))
+        self.dst_model = \
+            os.path.join(self.work_dir, 'model_{0}'.format(self.url_title))
 
+        if not os.path.exists('./cache'):
+            os.mkdir('./cache')
+
+    def get_texts_from_url(self, send_msg):
+        """
+        Получение текстов с сайтов
+        :param send_msg: Функция для отправления сообщений через бота
+        """
         urls = set()
         urls.add((self.url, 1))
         used_urls = set()
@@ -62,25 +71,48 @@ class WordStatFromSite:
 
         if not os.path.exists(self.dst_texts):
             with open(self.dst_texts, 'w') as texts:
-                while len(urls.difference(used_urls)) > 0:
+                while max_depth <= self.depth:
                     for url in urls.difference(used_urls):
+
                         used_urls.add(url)
-                        parser_site = parser.UrlParser(url[0])
-                        text = '.\n'.join(
-                            [str(p) for p in parser_site.find_paragraphs()
-                             if p is not None])
+                        title = url[0].split('/')[-1]
+
+                        dst_text = os.path.join('./cache', title + '.txt')
+                        dst_ref = os.path.join('./cache', title + '.ref')
+
+                        if not os.path.exists(dst_text):
+                            parser_site = parser.UrlParser(url[0])
+
+                            text = '.\n'.join(
+                                [str(p) for p in parser_site.find_paragraphs()
+                                 if p is not None])
+                            with open(dst_text, 'w') as file:
+                                file.write(text)
+
+                            refs = [('https://' + self.url_name +
+                                     unquote(href),
+                                     url[1] + 1)
+                                    for href in parser_site.find_references()
+                                    if str(href)[0] == '/']
+                            with open(dst_ref, 'w') as file:
+                                json.dump(refs, file)
+
+                        else:
+                            with open(dst_text, 'r') as file:
+                                text = file.read()
+                            with open(dst_ref, 'r') as file:
+                                refs = [(i[0], i[1]) for i in json.load(file)]
+
                         texts.write(text)
                         if url[1] < self.depth:
-                            urls.update(
-                                [('https://' + self.url_name + href,
-                                  url[1] + 1)
-                                 for href in parser_site.find_references()
-                                 if str(href)[0] == '/'])
-                    send_msg(chat_id, 'Прошли все сайты на глубине {0}'
+                            urls.update(refs)
+
+                    send_msg(self.chat_id, 'Прошли все сайты на глубине {0}'
                              .format(max_depth))
+
                     max_depth += 1
         else:
-            send_msg(chat_id, 'Тексты получены офлайн.')
+            send_msg(self.chat_id, 'Тексты получены офлайн.')
 
     def train_writer(self):
         """
@@ -197,7 +229,7 @@ class WordStatFromSite:
             text = texts.read()
             wordcloud = WordCloud(colormap=color).generate(text)
             dst_photo = os.path.join(self.work_dir,
-                                     'wordcloud_{0}.png'.format(self.url_name))
+                                     'wordcloud_{0}.png'.format(self.url_title))
             plt.axis('off')
             plt.imsave(dst_photo, wordcloud, format='png')
             return dst_photo
@@ -234,10 +266,10 @@ class WordStatFromSite:
         ax = plt.figure()
         dst_hist_length = \
             os.path.join(self.work_dir,
-                         'hist_length_{0}.png'.format(self.url_name))
+                         'hist_length_{0}.png'.format(self.url_title))
         dst_hist_freq = \
             os.path.join(self.work_dir,
-                         'hist_freq_{0}.png'.format(self.url_name))
+                         'hist_freq_{0}.png'.format(self.url_title))
 
         plt.hist(words_stat['length'])
         plt.xlabel('Длина слова')

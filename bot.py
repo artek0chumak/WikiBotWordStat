@@ -7,6 +7,8 @@ import re
 import requests
 import config
 from word_stat_form_site import WordStatFromSite
+import os
+import shutil
 
 ip = 'mcvie.reconnect.rocks'
 port = '1080'
@@ -26,6 +28,7 @@ url_reg = r'(?:(?:https?|ftp):\/\/|\b(?:[a-z\d]+\.))(?:(?:[^\s()<>]+|\((?:' \
           r'\s()<>]+\)))?\)|[^\s`!()\[\]{};:\'.,<>?«»“”‘’]))?'
 
 
+
 def has_url(function):
     def wrapper(message, *args):
         if currents_chat_url.get(message.chat.id, None) is None:
@@ -40,6 +43,8 @@ def has_url(function):
 def start_bot(message):
     bot.send_message(message.chat.id, 'Привет! Чтобы узнать, как '
                                       'меня использовать, напиши /help.')
+    if os.path.exists(os.path.join('.', 'chat_{0}'.format(message.chat.id))):
+        shutil.rmtree(os.path.join('.', 'chat_{0}'.format(message.chat.id)))
 
 
 @bot.message_handler(regexp=url_reg + r' [\d]+')
@@ -53,7 +58,8 @@ def get_url(message):
                                       'сообщение о завершении.')
     try:
         currents_chat_url[message.chat.id] = \
-            WordStatFromSite(url, depth, message.chat.id, bot.send_message)
+            WordStatFromSite(url, depth, message.chat.id)
+        currents_chat_url[message.chat.id].get_texts_from_url(bot.send_message)
         bot.send_message(message.chat.id, 'Начинаем анализировать тексты...')
         currents_chat_url[message.chat.id].train_writer()
         currents_chat_url[message.chat.id].gen_stat()
@@ -158,9 +164,8 @@ def describe(message):
 
 @bot.message_handler(content_types=['text'])
 def no_command(message):
-    bot.send_message\
-        (message.chat.id, 'Не определена команда. '
-                          'Попробуйте /help для вывода всех команд.')
+    bot.send_message(message.chat.id, 'Не определена команда. Попробуйте /help'
+                                      ' для вывода всех команд.')
 
 
 if __name__ == '__main__':
