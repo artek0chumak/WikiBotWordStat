@@ -76,6 +76,7 @@ class WordStatFromSite:
 
                         used_urls.add(url)
                         title = url[0].split('/')[-1]
+                        print(title)
 
                         dst_text = os.path.join('./cache', title + '.txt')
                         dst_ref = os.path.join('./cache', title + '.ref')
@@ -263,7 +264,7 @@ class WordStatFromSite:
             (words_stat['frequency'] < avg_freq + 3 * std_freq) & (
                     words_stat['frequency'] > avg_freq - 3 * std_freq)]
 
-        ax = plt.figure()
+        ax = plt.figure(figsize=(30, 30))
         dst_hist_length = \
             os.path.join(self.work_dir,
                          'hist_length_{0}.png'.format(self.url_title))
@@ -274,16 +275,17 @@ class WordStatFromSite:
         plt.hist(words_stat['length'])
         plt.xlabel('Длина слова')
         plt.ylabel('Количество слов')
-        plt.title('Гистограмма длины слова')
+        plt.title('Распределение длины слова')
         plt.grid(True)
         plt.savefig(dst_hist_length, format='png')
         ax.clear()
 
-        plt.hist(words_stat['frequency'])
+        plt.bar(words_stat.values.T[0], words_stat['frequency'])
         plt.xlabel('Частота слова')
         plt.ylabel('Количество слов')
-        plt.title('Гистограмма частоты появления слова')
+        plt.title('Распределение частоты появления слова')
         plt.grid(True)
+        plt.xticks(rotation='vertical')
         plt.savefig(dst_hist_freq, format='png')
         ax.clear()
 
